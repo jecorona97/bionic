@@ -22,37 +22,39 @@ def flow(preset_builder):
     return preset_builder.build()
 
 
-def test_export_filename(flow):
-    assert pickle.loads(flow.export('f').read_bytes()) == 5
+def test_copy_filename(flow):
+    assert pickle.loads(flow.get('f', object_type='BlessedPath')
+                        .src_file_path
+                        .read_bytes()) == 5
 
 
-def test_export_to_new_directory(flow, tmp_path):
+def test_copy_to_new_directory(flow, tmp_path):
     dir_path = tmp_path / 'output'
-    flow.export('f', dir_path=dir_path)
+    flow.get('f', object_type='BlessedPath').copy(dir_path=dir_path)
 
     expected_file_path = dir_path / 'f.pkl'
     assert pickle.loads(expected_file_path.read_bytes()) == 5
 
 
-def test_export_to_existing_directory(flow, tmp_path):
+def test_copy_to_existing_directory(flow, tmp_path):
     dir_path = tmp_path / 'output'
     dir_path.mkdir()
-    flow.export('f', dir_path=dir_path)
+    flow.get('f', object_type='BlessedPath').copy(dir_path=dir_path)
 
     expected_file_path = dir_path / 'f.pkl'
     assert pickle.loads(expected_file_path.read_bytes()) == 5
 
 
-def test_export_to_file(flow, tmp_path):
+def test_copy_to_file(flow, tmp_path):
     file_path = tmp_path / 'data.pkl'
-    flow.export('f', file_path=file_path)
+    flow.get('f', object_type='BlessedPath').copy(file_path=file_path)
 
     assert pickle.loads(file_path.read_bytes()) == 5
 
 
 @skip_unless_gcs
-def test_export_to_gcs_dir(flow, tmp_path):
-    flow.export('f', dir_path='gs://' + GCS_TEST_BUCKET)
+def test_copy_to_gcs_dir(flow, tmp_path):
+    flow.get('f', object_type='BlessedPath').copy(dir_path='gs://' + GCS_TEST_BUCKET)
     src = Path(GCS_TEST_BUCKET) / 'f.pkl'
     dst = tmp_path / 'f.pkl'
     check_call('gsutil -m cp gs://{} {}'.format(src, dst), shell=True)
@@ -61,9 +63,9 @@ def test_export_to_gcs_dir(flow, tmp_path):
 
 
 @skip_unless_gcs
-def test_export_to_gcs_file(flow, tmp_path):
+def test_copy_to_gcs_file(flow, tmp_path):
     src = str(Path(GCS_TEST_BUCKET) / 'f.pkl')
-    flow.export('f', file_path='gs://' + src)
+    flow.get('f', object_type='BlessedPath').copy(file_path='gs://' + src)
     dst = tmp_path / 'f.pkl'
     check_call('gsutil -m cp gs://{} {}'.format(src, dst), shell=True)
     assert pickle.loads(dst.read_bytes()) == 5
