@@ -907,26 +907,34 @@ class Flow(object):
 
         return FlowBuilder._from_state(self._state)
 
-    def get(self, name, fmt=None):
+    def get(self, name, collection=None, object_type=object):
         """
         Computes the value(s) associated with an entity.
 
-        If the entity has multiple values, the ``fmt`` parameter indicates
-        how to handle them.  It can have any of the following values:
+        If the entity has multiple values, the ``collection`` parameter
+        indicates how to handle them.  It can have any of the following values:
 
-        * ``object``: return a single value or throw an exception
+        * ``None``: return a single value or throw an exception
         * ``list`` or ``'list'``: return a list of values
         * ``set`` or ``'set'``: return a set of values
         * ``pandas.Series`` or ``'series'``: return a series whose index is
           the root cases distinguishing the different values
+
+        The user can specify the type of object to return in the collection
+        e.g. object (a value in-memory) or BlessedPath (a path to the
+        persisted file for the computed entity)
 
         Parameters
         ----------
 
         name: String
             The name of a entity.
-        fmt: String or type, optional, default is ``object``
+
+        collection: String or type, optional, default is ``None``
             The data structure to use if the entity has multiple values.
+
+        object_type: String
+            The type of object to return in the collection.
 
         Returns
         -------
@@ -935,18 +943,24 @@ class Flow(object):
         """
 
         result_group = self._deriver.derive(name)
-        if fmt is None or fmt is object:
-            if len(result_group) == 0:
+        if object_type is object:
+            results = [result.value for result in result_group]
+        elif object_type == 'BlessedPath':
+            results = [BlessedPath(name, result.file_path) for result in result_group]
+        else:
+            raise ValueError("Unrecognized object_type %r" % object_type)
+
+        if collection is None or collection is object:
+            if len(results) == 0:
                 raise ValueError("Entity %r has no defined values" % name)
-            if len(result_group) > 1:
+            if len(results) > 1:
                 raise ValueError("Entity %r has multiple values" % name)
-            result, = result_group
-            return result.value
-        elif fmt is list or fmt == 'list':
-            return [result.value for result in result_group]
-        elif fmt is set or fmt == 'set':
-            return set(result.value for result in result_group)
-        elif fmt is pd.Series or fmt == 'series':
+            return results[0]
+        elif collection is list or collection == 'list':
+            return results
+        elif collection is set or collection == 'set':
+            return set(results)
+        elif collection is pd.Series or collection == 'series':
             if len(result_group.key_space) > 0:
                 index = multi_index_from_case_keys(
                     case_keys=[
@@ -957,71 +971,11 @@ class Flow(object):
                 index = None
             return pd.Series(
                 name=name,
-                data=[result.value for result in result_group],
+                data=results,
                 index=index,
             )
         else:
-            raise ValueError("Unrecognized format %r" % fmt)
-
-    # TODO Maybe this wants to be two different functions?
-    def export(self, name, file_path=None, dir_path=None):
-        """
-        Provides access to the persisted file corresponding to an entity.
-
-        Can be called in three ways:
-
-        .. code-block:: python
-
-            # Returns a path to the persisted file.
-            export(name)
-
-            # Copies the persisted file to the specified file path.
-            export(name, file_path=path)
-
-            # Copies the persisted file to the specified directory.
-            export(name, dir_path=path)
-
-        The entity must be persisted and have only one instance. The dir_path
-        and file_path options support paths on GCS, specified like:
-        gs://mybucket/subdir/
-        """
-
-        result_group = self._deriver.derive(name)
-        if len(result_group) != 1:
-            raise ValueError(
-                "Can only export an entity if it has a single value; "
-                "entity %r has %d values" % (name, len(result_group)))
-
-        result, = result_group
-
-        if result.file_path is None:
-            raise ValueError("Entity %r is not locally persisted" % name)
-        src_file_path = result.file_path
-
-        if dir_path is None and file_path is None:
-            return src_file_path
-
-        check_exactly_one_present(dir_path=dir_path, file_path=file_path)
-
-        if dir_path is not None:
-            dst_dir_path = Path(dir_path)
-            filename = name + src_file_path.suffix
-            dst_file_path = dst_dir_path / filename
-        else:
-            dst_file_path = Path(file_path)
-            dst_dir_path = dst_file_path.parent
-
-        if not dst_dir_path.exists() and 'gs:/' not in str(dst_dir_path):
-            dst_dir_path.mkdir(parents=True)
-
-        dst_file_path_str = str(dst_file_path)
-
-        if dst_file_path_str.startswith('gs:/'):
-            # The path object combines // into /, so we revert it here
-            copy_to_gcs(
-                str(src_file_path), dst_file_path_str.replace('gs:/', 'gs://'))
-        else:
-            shutil.copyfile(str(src_file_path), dst_file_path_str)
+            raise ValueError("Unrecognized format %r" % collection)
 
     def declaring(self, name, protocol=None):
         """
