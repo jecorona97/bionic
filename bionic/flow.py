@@ -6,7 +6,6 @@ from __future__ import absolute_import
 
 from builtins import object
 import os
-import shutil
 import functools
 import warnings
 
@@ -28,7 +27,7 @@ from .deriver import EntityDeriver
 from . import decorators
 from .util import (
     group_pairs, check_exactly_one_present, check_at_most_one_present,
-    copy_to_gcs,
+    copy_to_gcs, FileCopier,
 )
 
 import logging
@@ -795,69 +794,6 @@ class FlowCase(object):
         return self
 
 
-class BlessedPath(object):
-    """
-    A wrapper for a Path object
-
-
-    Parameters
-    ----------
-    name: String
-        The name of the computed entity.
-
-    src_file_path: Path
-        A path to the persisted file.
-    """
-    def __init__(self, name, src_file_path):
-        self.name = name
-        self.src_file_path = src_file_path
-
-    def copy(self, file_path=None, dir_path=None):
-        """
-        Provides access to the persisted file corresponding to an entity.
-
-        Can be called in three ways:
-
-        .. code-block:: python
-
-            # Returns a path to the persisted file.
-            copy(name)
-
-            # Copies the persisted file to the specified file path.
-            copy(name, file_path=path)
-
-            # Copies the persisted file to the specified directory.
-            copy(name, dir_path=path)
-
-        The entity must be persisted. The dir_path and file_path options support paths on GCS,
-        specified like: gs://mybucket/subdir/
-        """
-        if dir_path is None and file_path is None:
-            return self.src_file_path
-
-        check_exactly_one_present(dir_path=dir_path, file_path=file_path)
-
-        if dir_path is not None:
-            dst_dir_path = Path(dir_path)
-            filename = self.name + self.src_file_path.suffix
-            dst_file_path = dst_dir_path / filename
-        else:
-            dst_file_path = Path(file_path)
-            dst_dir_path = dst_file_path.parent
-
-        if not dst_dir_path.exists() and 'gs:/' not in str(dst_dir_path):
-            dst_dir_path.mkdir(parents=True)
-
-        dst_file_path_str = str(dst_file_path)
-
-        if dst_file_path_str.startswith('gs:/'):
-            # The path object combines // into /, so we revert it here
-            copy_to_gcs(
-                str(self.src_file_path), dst_file_path_str.replace('gs:/', 'gs://'))
-        else:
-            shutil.copyfile(str(self.src_file_path), dst_file_path_str)
-
-
 class Flow(object):
     """
     An immutable workflow object.  You can use get() to compute any entity
@@ -907,7 +843,7 @@ class Flow(object):
 
         return FlowBuilder._from_state(self._state)
 
-    def get(self, name, collection=None, object_type=object):
+    def get(self, name, collection=None, fmt=None, mode=object):
         """
         Computes the value(s) associated with an entity.
 
@@ -920,9 +856,12 @@ class Flow(object):
         * ``pandas.Series`` or ``'series'``: return a series whose index is
           the root cases distinguishing the different values
 
-        The user can specify the type of object to return in the collection
-        e.g. object (a value in-memory) or BlessedPath (a path to the
-        persisted file for the computed entity)
+        The user can specify the type of object to return in the collection.
+        It can have any of the following values:
+        * ``object`` (a value in-memory)
+        * ``FileCopier`` (a wrapper for a path to the persisted file for the computed entity)
+        * ``Path`` or ``'path'`` (for a path to persisted file)
+        * ``'filename'`` to get a list of filenames
 
         Parameters
         ----------
@@ -933,7 +872,7 @@ class Flow(object):
         collection: String or type, optional, default is ``None``
             The data structure to use if the entity has multiple values.
 
-        object_type: String
+        mode: String
             The type of object to return in the collection.
 
         Returns
@@ -943,23 +882,36 @@ class Flow(object):
         """
 
         result_group = self._deriver.derive(name)
-        if object_type is object:
-            results = [result.value for result in result_group]
-        elif object_type == 'BlessedPath':
-            results = [BlessedPath(name, result.file_path) for result in result_group]
+        if mode is object:
+            values = [result.value for result in result_group]
+        elif mode == 'FileCopier':
+            values = [FileCopier(name, result.file_path) for result in result_group]
+        elif mode is Path or mode == 'path':
+            values = [result.file_path for result in result_group]
+        elif mode == 'filename':
+            values = [str(result.file_path) for result in result_group]
         else:
-            raise ValueError("Unrecognized object_type %r" % object_type)
+            raise ValueError("Unrecognized mode %r" % mode)
+
+        check_at_most_one_present(fmt=fmt, collection=collection)
+
+        if fmt:
+            warnings.warn(
+                "The fmt argument is deprecated and will be removed in a future release. "
+                "Please use collection as a replacement.")
+
+        collection = fmt or collection
 
         if collection is None or collection is object:
-            if len(results) == 0:
+            if len(values) == 0:
                 raise ValueError("Entity %r has no defined values" % name)
-            if len(results) > 1:
+            if len(values) > 1:
                 raise ValueError("Entity %r has multiple values" % name)
-            return results[0]
+            return values[0]
         elif collection is list or collection == 'list':
-            return results
+            return values
         elif collection is set or collection == 'set':
-            return set(results)
+            return set(values)
         elif collection is pd.Series or collection == 'series':
             if len(result_group.key_space) > 0:
                 index = multi_index_from_case_keys(
@@ -971,11 +923,11 @@ class Flow(object):
                 index = None
             return pd.Series(
                 name=name,
-                data=results,
+                data=values,
                 index=index,
             )
         else:
-            raise ValueError("Unrecognized format %r" % collection)
+            raise ValueError("Unrecognized collection type %r" % collection)
 
     def declaring(self, name, protocol=None):
         """
