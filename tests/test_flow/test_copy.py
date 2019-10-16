@@ -23,23 +23,29 @@ def flow(preset_builder):
 
 
 def test_copy_filename(flow):
-    assert pickle.loads(flow.get('f', object_type='BlessedPath')
+    assert pickle.loads(flow.get('f', mode='FileCopier')
                         .src_file_path
                         .read_bytes()) == 5
 
 
 def test_copy_to_new_directory(flow, tmp_path):
     dir_path = tmp_path / 'output'
-    flow.get('f', object_type='BlessedPath').copy(dir_path=dir_path)
+
+    # dir_path.mkdir()
+
+    flow.get('f', mode='FileCopier').new_copy(destination=dir_path)
 
     expected_file_path = dir_path / 'f.pkl'
+
+    print(dir_path.exists())
+    print(expected_file_path.exists())
     assert pickle.loads(expected_file_path.read_bytes()) == 5
 
 
 def test_copy_to_existing_directory(flow, tmp_path):
     dir_path = tmp_path / 'output'
     dir_path.mkdir()
-    flow.get('f', object_type='BlessedPath').copy(dir_path=dir_path)
+    flow.get('f', mode='FileCopier').new_copy(destination=dir_path)
 
     expected_file_path = dir_path / 'f.pkl'
     assert pickle.loads(expected_file_path.read_bytes()) == 5
@@ -47,14 +53,21 @@ def test_copy_to_existing_directory(flow, tmp_path):
 
 def test_copy_to_file(flow, tmp_path):
     file_path = tmp_path / 'data.pkl'
-    flow.get('f', object_type='BlessedPath').copy(file_path=file_path)
+    flow.get('f', mode='FileCopier').new_copy(destination=file_path)
 
+    assert pickle.loads(file_path.read_bytes()) == 5
+
+
+def test_copy_to_file_using_str(flow, tmp_path):
+    file_path = tmp_path / 'data.pkl'
+    file_path_str = str(file_path)
+    flow.get('f', mode='FileCopier').new_copy(destination=file_path_str)
     assert pickle.loads(file_path.read_bytes()) == 5
 
 
 @skip_unless_gcs
 def test_copy_to_gcs_dir(flow, tmp_path):
-    flow.get('f', object_type='BlessedPath').copy(dir_path='gs://' + GCS_TEST_BUCKET)
+    flow.get('f', mode='FileCopier').new_copy(destination='gs://' + GCS_TEST_BUCKET)
     src = Path(GCS_TEST_BUCKET) / 'f.pkl'
     dst = tmp_path / 'f.pkl'
     check_call('gsutil -m cp gs://{} {}'.format(src, dst), shell=True)
@@ -65,7 +78,7 @@ def test_copy_to_gcs_dir(flow, tmp_path):
 @skip_unless_gcs
 def test_copy_to_gcs_file(flow, tmp_path):
     src = str(Path(GCS_TEST_BUCKET) / 'f.pkl')
-    flow.get('f', object_type='BlessedPath').copy(file_path='gs://' + src)
+    flow.get('f', mode='FileCopier').new_copy(destination='gs://' + src)
     dst = tmp_path / 'f.pkl'
     check_call('gsutil -m cp gs://{} {}'.format(src, dst), shell=True)
     assert pickle.loads(dst.read_bytes()) == 5
