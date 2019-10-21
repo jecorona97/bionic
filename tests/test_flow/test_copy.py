@@ -58,6 +58,14 @@ def test_copy_to_file(flow, tmp_path):
     assert pickle.loads(file_path.read_bytes()) == 5
 
 
+def test_copy_to_file_using_str(flow, tmp_path):
+    file_path = tmp_path / 'data.pkl'
+    file_path_str = str(file_path)
+    flow.get('f', mode='FileCopier').new_copy(destination=file_path_str)
+
+    assert pickle.loads(file_path.read_bytes()) == 5
+
+
 @skip_unless_gcs
 def test_copy_to_gcs_dir(flow, tmp_path):
     flow.get('f', mode='FileCopier').new_copy(destination='gs://' + GCS_TEST_BUCKET)
