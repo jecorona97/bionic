@@ -2,7 +2,7 @@ import pytest
 import pickle
 from pathlib2 import Path
 from subprocess import check_call
-from ..helpers import skip_unless_gcs, GCS_TEST_BUCKET, df_from_csv_str
+from ..helpers import skip_unless_gcs, GCS_TEST_BUCKET, df_from_csv_str, equal_frame_and_index_content
 
 import bionic as bn
 import dask.dataframe as dd
@@ -54,23 +54,24 @@ def test_copy_to_file_using_str(flow, tmp_path):
 
 
 
-@pytest.mark.parametrize('src_is_dir', [True, False])
-@pytest.mark.parametrize('dest_is_dir', [True, False])
+@pytest.mark.parametrize('src_is_dir', [True])
+@pytest.mark.parametrize('dest_is_dir', [True])
 # @pytest.mark.parametrize('is_gcs', [True, False])
 def test_copy_using_dask(builder, tmp_path, src_is_dir, dest_is_dir):
 
+    import pandas.testing as pdt
     df_value = df_from_csv_str('''
     color,number
     red,1
     blue,2
     green,3
     ''')
-    dask_df = dd.from_pandas(df_value, npartitions=1)
+    dask_df_val = dd.from_pandas(df_value, npartitions=1)
 
     @builder
     @bn.protocol.dask
     def dask_df():
-        return dask_df
+        return dask_df_val
 
     @builder
     @bn.protocol.frame
@@ -81,7 +82,7 @@ def test_copy_using_dask(builder, tmp_path, src_is_dir, dest_is_dir):
 
     if src_is_dir:
         entity_name = 'dask_df'
-        expected = dask_df
+        expected = dask_df_val
     else:
         entity_name = 'df'
         expected = df_value
@@ -89,18 +90,84 @@ def test_copy_using_dask(builder, tmp_path, src_is_dir, dest_is_dir):
     if dest_is_dir:
         destination = tmp_path / 'output'
         destination.mkdir()
+        # destination = destination / 'df.pq'
     else:
         destination = tmp_path / 'data'
 
+    print(entity_name)
+    print(expected)
+    print(destination)
+    print(type(destination))
     flow.get(entity_name, mode='FileCopier').new_copy(destination=destination)
     if src_is_dir:
-        actual = dd.read_parquet(destination)
+        print('hi')
+        actual = dd.read_parquet(destination / 'dask_df.pq.dask')
+        print(type(actual))
+        print(actual)
+        assert equal_frame_and_index_content(actual.compute(), expected.compute())
     else:
-        actual = pickle.loads(destination.read_bytes())
-    assert actual == expected
+        #actual = pickle.loads(destination.read_bytes())
+        from pyarrow import parquet
+        with destination.open('rb') as ifp:
+            actual = parquet.read_table(ifp).to_pandas()
+        print(actual)
+    #pdt.assert_frame_equal(actual, expected)
 
 
+def test_copy_dask_to_dir(builder, tmp_path):
 
+    import pandas.testing as pdt
+    df_value = df_from_csv_str('''
+    color,number
+    red,1
+    blue,2
+    green,3
+    ''')
+    dask_df_val = dd.from_pandas(df_value, npartitions=1)
+
+    @builder
+    @bn.protocol.dask
+    def dask_df():
+        return dask_df_val
+
+    @builder
+    @bn.protocol.frame
+    def df():
+        return df_value
+
+    flow = builder.build()
+
+    if src_is_dir:
+        entity_name = 'dask_df'
+        expected = dask_df_val
+    else:
+        entity_name = 'df'
+        expected = df_value
+
+    if dest_is_dir:
+        destination = tmp_path / 'output'
+        destination.mkdir()
+        # destination = destination / 'df.pq'
+    else:
+        destination = tmp_path / 'data'
+
+    print(entity_name)
+    print(expected)
+    print(destination)
+    print(type(destination))
+    flow.get(entity_name, mode='FileCopier').new_copy(destination=destination)
+    if src_is_dir:
+        print('hi')
+        actual = dd.read_parquet(destination / 'dask_df.pq.dask')
+        print(type(actual))
+        print(actual)
+        assert equal_frame_and_index_content(actual.compute(), expected.compute()) 
+
+def test_copy_file_to_dir():
+    pass
+
+def test_copy_file_to_file():
+    pass
 
 # TODO: ADD TEST FOR MULTI-VALUE EXPORT
 

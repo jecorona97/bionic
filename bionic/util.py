@@ -404,7 +404,7 @@ class FileCopier(object):
 
         #  handle gcs
         if is_gcs:
-            subprocess.check_call(['gsutil', '-mq', 'cp', 'R', str(self.src_file_path), str(destination)])
+            subprocess.check_call(['gsutil', '-mq', 'cp', '-R', str(self.src_file_path), str(destination)])
         else:
             subprocess.check_call(['cp', '-R', str(self.src_file_path), str(destination)])
 
