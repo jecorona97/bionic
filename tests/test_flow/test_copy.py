@@ -2,8 +2,10 @@ import pytest
 import pickle
 from pathlib2 import Path
 from subprocess import check_call
-from ..helpers import skip_unless_gcs, GCS_TEST_BUCKET
+from ..helpers import skip_unless_gcs, GCS_TEST_BUCKET, df_from_csv_str
 
+import bionic as bn
+import dask.dataframe as dd
 
 @pytest.fixture(scope='function')
 def preset_builder(builder):
@@ -28,20 +30,6 @@ def test_copy_filename(flow):
                         .read_bytes()) == 5
 
 
-def test_copy_to_new_directory(flow, tmp_path):
-    dir_path = tmp_path / 'output'
-
-    # dir_path.mkdir()
-
-    flow.get('f', mode='FileCopier').new_copy(destination=dir_path)
-
-    expected_file_path = dir_path / 'f.pkl'
-
-    print(dir_path.exists())
-    print(expected_file_path.exists())
-    assert pickle.loads(expected_file_path.read_bytes()) == 5
-
-
 def test_copy_to_existing_directory(flow, tmp_path):
     dir_path = tmp_path / 'output'
     dir_path.mkdir()
@@ -63,6 +51,58 @@ def test_copy_to_file_using_str(flow, tmp_path):
     file_path_str = str(file_path)
     flow.get('f', mode='FileCopier').new_copy(destination=file_path_str)
     assert pickle.loads(file_path.read_bytes()) == 5
+
+
+
+@pytest.mark.parametrize('src_is_dir', [True, False])
+@pytest.mark.parametrize('dest_is_dir', [True, False])
+# @pytest.mark.parametrize('is_gcs', [True, False])
+def test_copy_using_dask(builder, tmp_path, src_is_dir, dest_is_dir):
+
+    df_value = df_from_csv_str('''
+    color,number
+    red,1
+    blue,2
+    green,3
+    ''')
+    dask_df = dd.from_pandas(df_value, npartitions=1)
+
+    @builder
+    @bn.protocol.dask
+    def dask_df():
+        return dask_df
+
+    @builder
+    @bn.protocol.frame
+    def df():
+        return df_value
+
+    flow = builder.build()
+
+    if src_is_dir:
+        entity_name = 'dask_df'
+        expected = dask_df
+    else:
+        entity_name = 'df'
+        expected = df_value
+
+    if dest_is_dir:
+        destination = tmp_path / 'output'
+        destination.mkdir()
+    else:
+        destination = tmp_path / 'data'
+
+    flow.get(entity_name, mode='FileCopier').new_copy(destination=destination)
+    if src_is_dir:
+        actual = dd.read_parquet(destination)
+    else:
+        actual = pickle.loads(destination.read_bytes())
+    assert actual == expected
+
+
+
+
+# TODO: ADD TEST FOR MULTI-VALUE EXPORT
 
 
 @skip_unless_gcs
