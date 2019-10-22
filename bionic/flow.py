@@ -883,12 +883,15 @@ class Flow(object):
         """
 
         result_group = self._deriver.derive(name)
+        print(result_group)
         if mode is object:
             values = [result.value for result in result_group]
         elif mode == 'FileCopier':
             values = [FileCopier(name, result.file_path) for result in result_group]
         elif mode is Path or mode == 'path':
+            print('in path')
             values = [result.file_path for result in result_group]
+            [print(type(v)) for v in values]
         elif mode == 'filename':
             values = [str(result.file_path) for result in result_group]
         else:

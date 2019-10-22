@@ -333,53 +333,7 @@ class FileCopier(object):
         self.name = name
         self.src_file_path = src_file_path
 
-    def copy(self, file_path=None, dir_path=None):
-        """
-        Provides access to the persisted file corresponding to an entity.
-
-        Can be called in three ways:
-
-        .. code-block:: python
-
-            # Returns a path to the persisted file.
-            copy()
-
-            # Copies the persisted file to the specified file path.
-            copy(ile_path=path)
-
-            # Copies the persisted file to the specified directory.
-            copy(dir_path=path)
-
-        The entity must be persisted. The dir_path and file_path options support paths on GCS,
-        specified like: gs://mybucket/subdir/
-        """
-        if dir_path is None and file_path is None:
-            return self.src_file_path
-
-        check_exactly_one_present(dir_path=dir_path, file_path=file_path)
-
-        if dir_path is not None:
-            dst_dir_path = Path(dir_path)
-            filename = self.name + self.src_file_path.suffix
-            dst_file_path = dst_dir_path / filename
-        else:
-            dst_file_path = Path(file_path)
-            dst_dir_path = dst_file_path.parent
-
-        if not dst_dir_path.exists() and 'gs:/' not in str(dst_dir_path):
-            dst_dir_path.mkdir(parents=True)
-
-        dst_file_path_str = str(dst_file_path)
-
-        if dst_file_path_str.startswith('gs:/'):
-            # The path object combines // into /, so we revert it here
-            copy_to_gcs(
-                str(self.src_file_path), dst_file_path_str.replace('gs:/', 'gs://'))
-        else:
-            shutil.copyfile(str(self.src_file_path), dst_file_path_str)
-
-    # WIP, FAILS ON TEST_COPY_TO_NEW_DIRECTORY WITH "NOT A DIRECTORY ERROR"
-    def new_copy(self, destination):
+    def copy(self, destination):
         """
         TODO: UPDATE DOCSTRING TO EXPLAIN FUNCTIONALITY
         Provides access to the persisted file corresponding to an entity.
